@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Игра на JavaScript</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background-color: black;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            background-color: #1a1a1a;
+            cursor: none;
+        }
+        #gameOverScreen {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+            background-color: rgba(128, 128, 128, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+        }
+        #restartButton {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="gameOverScreen">
+        <h1>Игра окончена</h1>
+        <button id="restartButton">Начать с начала</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const restartButton = document.getElementById('restartButton');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth * 0.8;
+            canvas.height = window.innerHeight * 0.8;
+        }
+
+        window.addEventListener('load', resizeCanvas);
+        window.addEventListener('resize', resizeCanvas);
+
+        const ship = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            width: 80,
+            height: 40,
+            speed: 0,
+            targetSpeed: 0,
+            maxSpeed: 80,
+            acceleration: 30,
+            rotation: 0,
+            targetRotation: 0,
+            rotationSpeed: 1,
+            health: 100,
+            shields: 100,
+            maxHealth: 100,
+            maxShields: 100,
+            shieldRegenRate: 5,
+            speedInertia: 0.1,
+            rotationInertia: 0.1,
+            isAlive: true
+        };
+
+        // Массив вражеских кораблей
+        const enemyShips = [
+            {
+                x: 0,
+                y: 0,
+                width: 80,
+                height: 40,
+                speed: 0,
+                targetSpeed: 0,
+                maxSpeed: 60,
+                acceleration: 20,
+                rotation: 0,
+                targetRotation: 0,
+                rotationSpeed: 1,
+                health: 100,
+                speedInertia: 0.1,
+                rotationInertia: 0.1,
+                maxHealth: 100,
+                isAlive: true,
+                lastShotTime: 0,
+                hitCount: 0,
+                respawnTime: 0,
+                energy: 100,
+                maxEnergy: 100,
+                energyRegenRate: 10
+            },
+            {
+                x: 0,
+                y: 0,
+                width: 80,
+                height: 40,
+                speed: 0,
+                targetSpeed: 0,
+                maxSpeed: 60,
+                acceleration: 20,
+                rotation: 0,
+                targetRotation: 0,
+                rotationSpeed: 1,
+                health: 100,
+                speedInertia: 0.1,
+                rotationInertia: 0.1,
+                maxHealth: 100,
+                isAlive: true,
+                lastShotTime: 0,
+                hitCount: 0,
+                respawnTime: 0,
+                energy: 100,
+                maxEnergy: 100,
+                energyRegenRate: 10
+            },
+            {
+                x: 0,
+                y: 0,
+                width: 80,
+                height: 40,
+                speed: 0,
+                targetSpeed: 0,
+                maxSpeed: 60,
+                acceleration: 20,
+                rotation: 0,
+                targetRotation: 0,
+                rotationSpeed: 1,
+                health: 100,
+                speedInertia: 0.1,
+                rotationInertia: 0.1,
+                maxHealth: 100,
+                isAlive: true,
+                lastShotTime: 0,
+                hitCount: 0,
+                respawnTime: 0,
+                energy: 100,
+                maxEnergy: 100,
+                energyRegenRate: 10
+            }
+        ];
+
+        const turrets = [
+            { x: 20, y: 0, rotation: 0, lastShotTime: 0, recoil: 0 },
+            { x: -20, y: 0, rotation: 0, lastShotTime: 0, recoil: 0 },
+            { x: 40, y: 0, rotation: 0, lastShotTime: 0, recoil: 0 },
+            { x: -40, y: 0, rotation: 0, lastShotTime: 0, recoil: 0 }
+        ];
+
+        const enemyTurrets = [
+            { x: 20, y: 0, rotation: 0, lastShotTime: 0, recoil: 0 },
+            { x: -20, y: 0, rotation: 0, lastShotTime: 0, recoil: 0 }
+        ];
+
+        const keys = {
+            w: false,
+            a: false,
+            s: false,
+            d: false
+        };
+
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        let mouse = { x: 0, y: 0, isDown: false, isRightDown: false, isMiddleDown: false };
+        let projectiles = [];
+        let enemyProjectiles = [];
+        let explosions = [];
+        let meteors = [];
+        const shotCooldown = 150;
+        const projectileSpeed = 300;
+        const projectileMaxDistance = 600;
+        const turretRotationSpeed = 2;
+        const recoilDuration = 0.1;
+        const meteorSpawnRate = 1000;
+        const meteorSpeed = 50;
+        const meteorLifetime = 12500;
+
+        let energy = 100;
+        const energyPerShot = 5;
+        const energyRegenRate = 20;
+
+        let laserActive = false;
+        const laserCooldown = 1000;
+        const laserEnergyCost = 30;
+        const laserDamage = 30;
+        let lastLaserTime = 0;
+
+        // Волна
+        let wave = null;
+        const waveRadius = 200; // Радиус волны
+        const waveDuration = 0.5; // Длительность волны
+
+        // Разброс при стрельбе (в радианах)
+        const spreadAngle = 0.1;
+
+        function getKeyFromEvent(e) {
+            const keyMap = {
+                'ц': 'w', 'Ц': 'w',
+                'ф': 'a', 'Ф': 'a',
+                'ы': 's', 'Ы': 's',
+                'в': 'd', 'В': 'd',
+                'w': 'w', 'W': 'w',
+                'a': 'a', 'A': 'a',
+                's': 's', 'S': 's',
+                'd': 'd', 'D': 'd'
+            };
+            return keyMap[e.key] || e.key.toLowerCase();
+        }
+
+        window.addEventListener('keydown', (e) => {
+            const key = getKeyFromEvent(e);
+            if (keys.hasOwnProperty(key)) {
+                keys[key] = true;
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const key = getKeyFromEvent(e);
+            if (keys.hasOwnProperty(key)) {
+                keys[key] = false;
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) { // Левая кнопка мыши
+                mouse.isDown = true;
+            } else if (e.button === 1) { // Средняя кнопка мыши
+                mouse.isMiddleDown = true;
+                createWave();
+            } else if (e.button === 2) { // Правая кнопка мыши
+                mouse.isRightDown = true;
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (e.button === 0) {
+                mouse.isDown = false;
+            } else if (e.button === 1) {
+                mouse.isMiddleDown = false;
+            } else if (e.button === 2) {
+                mouse.isRightDown = false;
+            }
+        });
+
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
+        restartButton.addEventListener('click', () => {
+            resetGame();
+            gameOverScreen.style.display = 'none';
+            requestAnimationFrame(gameLoop);
+        });
+
+        function playShootSound() {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.type = 'triangle'; // Тип волны (можно изменить на 'sine', 'triangle', 'sawtooth')
+            oscillator.frequency.setValueAtTime(100, audioContext.currentTime); // Частота звука (440 Гц = нота "Ля")
+
+            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime); // Громкость
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start();
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.5); // Плавное затухание
+            oscillator.stop(audioContext.currentTime + 0.5); // Длительность звука
+
+            
+        }
+
+        // Функция для генерации звука взрыва
+        function playExplosionSound() {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.type = 'triangle'; // Тип волны
+            oscillator.frequency.setValueAtTime(25, audioContext.currentTime); // Низкая частота для "баса"
+            gainNode.gain.setValueAtTime(1, audioContext.currentTime); // Громкость
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start();
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.5); // Плавное затухание
+            oscillator.stop(audioContext.currentTime + 0.5); // Длительность звука
+        }
+
+        let lastTime = 0;
+        let flameAnimationTime = 0;
+        let currentTurretIndex = 0;
+        let lastMeteorSpawnTime = 0;
+        let gameOverTime = 0;
+
+        function spawnEnemyShip(enemyShip) {
+            let x, y;
+            let attempts = 0;
+            const maxAttempts = 100;
+
+            do {
+                x = Math.random() * canvas.width;
+                y = Math.random() * canvas.height;
+                attempts++;
+            } while (Math.sqrt((x - ship.x) ** 2 + (y - ship.y) ** 2) < 500 && attempts < maxAttempts);
+
+            if (attempts >= maxAttempts) {
+                x = canvas.width - 100;
+                y = canvas.height - 100;
+            }
+
+            enemyShip.x = x;
+            enemyShip.y = y;
+            enemyShip.health = 100;
+            enemyShip.isAlive = true;
+            enemyShip.hitCount = 0;
+            enemyShip.respawnTime = 0;
+            enemyShip.energy = 100;
+        }
+
+        function gameLoop(currentTime) {
+            if (!ship.isAlive) {
+                if (gameOverTime === 0) {
+                    gameOverTime = currentTime;
+                } else if (currentTime - gameOverTime > 3000) {
+                    gameOverScreen.style.display = 'block';
+                    return;
+                }
+            }
+
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            flameAnimationTime += deltaTime;
+
+            update(deltaTime, currentTime);
+            render();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function spawnMeteor(currentTime) {
+            const side = Math.floor(Math.random() * 4);
+            let x, y;
+
+            switch (side) {
+                case 0:
+                    x = Math.random() * canvas.width;
+                    y = -50;
+                    break;
+                case 1:
+                    x = canvas.width + 50;
+                    y = Math.random() * canvas.height;
+                    break;
+                case 2:
+                    x = Math.random() * canvas.width;
+                    y = canvas.height + 50;
+                    break;
+                case 3:
+                    x = -50;
+                    y = Math.random() * canvas.height;
+                    break;
+            }
+
+            const angleToShip = Math.atan2(ship.y - y, ship.x - x);
+            const angleVariation = (Math.random() - 0.5) * 0.5;
+            const angle = angleToShip + angleVariation;
+
+            meteors.push({
+                x: x,
+                y: y,
+                speed: meteorSpeed,
+                angle: angle,
+                size: 20 + Math.random() * 30,
+                spawnTime: currentTime,
+                lifetime: meteorLifetime
+            });
+        }
+
+        function shoot(turret, currentTime, isEnemy = false, enemyShip = null) {
+            if (currentTime - turret.lastShotTime >= shotCooldown) {
+                if (!isEnemy && energy < energyPerShot) return;
+                if (isEnemy && enemyShip.energy < energyPerShot) return;
+                 playShootSound();
+
+                turret.lastShotTime = currentTime;
+                turret.recoil = 1;
+
+                if (!isEnemy) energy -= energyPerShot;
+                else enemyShip.energy -= energyPerShot;
+
+                const barrelEndX = turret.x + 25 * Math.cos(turret.rotation);
+                const barrelEndY = turret.y + 25 * Math.sin(turret.rotation);
+
+                // Добавляем разброс
+                const spread = (Math.random() - 0.5) * spreadAngle;
+                const projectileRotation = turret.rotation + (isEnemy ? enemyShip.rotation : ship.rotation) + spread;
+
+                const projectile = {
+                    x: (isEnemy ? enemyShip.x : ship.x) + barrelEndX * Math.cos(isEnemy ? enemyShip.rotation : ship.rotation) - barrelEndY * Math.sin(isEnemy ? enemyShip.rotation : ship.rotation),
+                    y: (isEnemy ? enemyShip.y : ship.y) + barrelEndX * Math.sin(isEnemy ? enemyShip.rotation : ship.rotation) + barrelEndY * Math.cos(isEnemy ? enemyShip.rotation : ship.rotation),
+                    rotation: projectileRotation,
+                    speed: projectileSpeed,
+                    width: 10,
+                    height: 5,
+                    color: isEnemy ? 'yellow' : 'red',
+                    distance: 0
+                };
+
+                if (isEnemy) {
+                    enemyProjectiles.push(projectile);
+                } else {
+                    projectiles.push(projectile);
+                }
+            }
+        }
+
+        function createWave() {
+            wave = {
+                x: ship.x,
+                y: ship.y,
+                radius: 0,
+                maxRadius: waveRadius,
+                duration: waveDuration,
+                time: 0
+            };
+        }
+
+        function updateWave(deltaTime) {
+            if (wave) {
+                wave.time += deltaTime;
+                wave.radius = (wave.time / wave.duration) * wave.maxRadius;
+
+                // Уничтожение снарядов в пределах волны
+                enemyProjectiles.forEach((projectile, index) => {
+                    const dx = projectile.x - wave.x;
+                    const dy = projectile.y - wave.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < wave.radius) {
+                        enemyProjectiles.splice(index, 1);
+                    }
+                });
+
+                // Удаление волны после завершения
+                if (wave.time > wave.duration) {
+                    wave = null;
+                }
+            }
+        }
+
+        function updateEnemyShip(enemyShip, deltaTime, currentTime) {
+            if (!enemyShip.isAlive) {
+                if (enemyShip.respawnTime === 0) {
+                    enemyShip.respawnTime = currentTime;
+                } else if (currentTime - enemyShip.respawnTime > 10000) {
+                    spawnEnemyShip(enemyShip);
+                }
+                return;
+            }
+
+            enemyShip.energy = Math.min(enemyShip.energy + enemyShip.energyRegenRate * deltaTime, enemyShip.maxEnergy);
+
+            let avoidAngle = 0;
+            meteors.forEach(meteor => {
+                const dx = meteor.x - enemyShip.x;
+                const dy = meteor.y - enemyShip.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < 200) {
+                    const angleToMeteor = Math.atan2(dy, dx);
+                    avoidAngle = angleToMeteor + Math.PI;
+                }
+            });
+
+            const dx = ship.x - enemyShip.x;
+            const dy = ship.y - enemyShip.y;
+            const distanceToPlayer = Math.sqrt(dx * dx + dy * dy);
+
+            if (distanceToPlayer < 400) {
+                enemyShip.targetRotation = Math.atan2(dy, dx);
+                enemyShip.targetSpeed = enemyShip.maxSpeed;
+            } else {
+                enemyShip.targetRotation = avoidAngle;
+                enemyShip.targetSpeed = enemyShip.maxSpeed;
+            }
+
+            enemyShip.speed += (enemyShip.targetSpeed - enemyShip.speed) * enemyShip.speedInertia * deltaTime * 10;
+            enemyShip.rotation += (enemyShip.targetRotation - enemyShip.rotation) * enemyShip.rotationInertia * deltaTime * 10;
+
+            enemyShip.x += Math.cos(enemyShip.rotation) * enemyShip.speed * deltaTime;
+            enemyShip.y += Math.sin(enemyShip.rotation) * enemyShip.speed * deltaTime;
+
+            if (enemyShip.x < 0) enemyShip.x = canvas.width;
+            if (enemyShip.x > canvas.width) enemyShip.x = 0;
+            if (enemyShip.y < 0) enemyShip.y = canvas.height;
+            if (enemyShip.y > canvas.height) enemyShip.y = 0;
+
+            if (distanceToPlayer < 500 && enemyShip.energy >= energyPerShot) {
+                enemyTurrets.forEach(turret => {
+                    const dx = ship.x - (enemyShip.x + turret.x * Math.cos(enemyShip.rotation) - turret.y * Math.sin(enemyShip.rotation));
+                    const dy = ship.y - (enemyShip.y + turret.x * Math.sin(enemyShip.rotation) + turret.y * Math.cos(enemyShip.rotation));
+                    const targetRotation = Math.atan2(dy, dx) - enemyShip.rotation;
+
+                    const angleDifference = targetRotation - turret.rotation;
+                    const maxRotation = turretRotationSpeed * deltaTime;
+                    turret.rotation += Math.min(Math.max(angleDifference, -maxRotation), maxRotation);
+
+                    shoot(turret, currentTime, true, enemyShip);
+                });
+            }
+        }
+
+        function update(deltaTime, currentTime) {
+            energy = Math.min(energy + energyRegenRate * deltaTime, 100);
+            ship.shields = Math.min(ship.shields + ship.shieldRegenRate * deltaTime, ship.maxShields);
+
+            if (keys.w) {
+                ship.targetSpeed = ship.maxSpeed;
+            } else if (keys.s) {
+                ship.targetSpeed = -ship.maxSpeed;
+            } else {
+                ship.targetSpeed = 0;
+            }
+
+            ship.speed += (ship.targetSpeed - ship.speed) * ship.speedInertia * deltaTime * 10;
+
+            if (keys.a) {
+                ship.targetRotation -= ship.rotationSpeed * deltaTime;
+            }
+            if (keys.d) {
+                ship.targetRotation += ship.rotationSpeed * deltaTime;
+            }
+
+            ship.rotation += (ship.targetRotation - ship.rotation) * ship.rotationInertia * deltaTime * 10;
+
+            ship.x += Math.cos(ship.rotation) * ship.speed * deltaTime;
+            ship.y += Math.sin(ship.rotation) * ship.speed * deltaTime;
+
+            if (ship.x < 0) ship.x = canvas.width;
+            if (ship.x > canvas.width) ship.x = 0;
+            if (ship.y < 0) ship.y = canvas.height;
+            if (ship.y > canvas.height) ship.y = 0;
+
+            turrets.forEach(turret => {
+                const dx = mouse.x - (ship.x + turret.x * Math.cos(ship.rotation) - turret.y * Math.sin(ship.rotation));
+                const dy = mouse.y - (ship.y + turret.x * Math.sin(ship.rotation) + turret.y * Math.cos(ship.rotation));
+                const targetRotation = Math.atan2(dy, dx) - ship.rotation;
+
+                const angleDifference = targetRotation - turret.rotation;
+                const maxRotation = turretRotationSpeed * deltaTime;
+                turret.rotation += Math.min(Math.max(angleDifference, -maxRotation), maxRotation);
+
+                if (turret.recoil > 0) {
+                    turret.recoil -= deltaTime / recoilDuration;
+                    if (turret.recoil < 0) turret.recoil = 0;
+                }
+            });
+
+            if (mouse.isDown) {
+                const turret = turrets[currentTurretIndex];
+                shoot(turret, currentTime);
+
+                currentTurretIndex = (currentTurretIndex + 1) % turrets.length;
+            }
+
+            updateWave(deltaTime);
+
+            if (mouse.isRightDown && currentTime - lastLaserTime > laserCooldown && energy >= laserEnergyCost) {
+                lastLaserTime = currentTime;
+                laserActive = true;
+                energy -= laserEnergyCost;
+
+                const laserAngle = Math.atan2(mouse.y - ship.y, mouse.x - ship.x);
+                const laserEndX = ship.x + Math.cos(laserAngle) * 10000;
+                const laserEndY = ship.y + Math.sin(laserAngle) * 10000;
+
+                meteors.forEach((meteor, index) => {
+                    const dx = meteor.x - ship.x;
+                    const dy = meteor.y - ship.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    const angleToMeteor = Math.atan2(dy, dx);
+                    const angleDifference = Math.abs(laserAngle - angleToMeteor);
+
+                    if (distance < 200 && angleDifference < 0.1) {
+                        explosions.push({
+                            x: meteor.x,
+                            y: meteor.y,
+                            radius: 0,
+                            maxRadius: meteor.size,
+                            duration: 0.5,
+                            time: 0
+                        });
+
+                        meteors.splice(index, 1);
+                    }
+                });
+
+                enemyShips.forEach(enemyShip => {
+                    if (enemyShip.isAlive) {
+                        const dx = enemyShip.x - ship.x;
+                        const dy = enemyShip.y - ship.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        const angleToEnemy = Math.atan2(dy, dx);
+                        const angleDifference = Math.abs(laserAngle - angleToEnemy);
+
+                        if (distance < 200 && angleDifference < 0.1) {
+                            enemyShip.health -= laserDamage;
+                            if (enemyShip.health <= 0) {
+                                enemyShip.isAlive = false;
+                                explosions.push({
+                                    x: enemyShip.x,
+                                    y: enemyShip.y,
+                                    radius: 0,
+                                    maxRadius: 100,
+                                    duration: 1,
+                                    time: 0
+                                });
+                            }
+                        }
+                    }
+                });
+            } else {
+                laserActive = false;
+            }
+
+            projectiles.forEach((projectile, index) => {
+                projectile.x += Math.cos(projectile.rotation) * projectile.speed * deltaTime;
+                projectile.y += Math.sin(projectile.rotation) * projectile.speed * deltaTime;
+                projectile.distance += projectile.speed * deltaTime;
+
+                enemyShips.forEach(enemyShip => {
+                    if (enemyShip.isAlive) {
+                        const dx = projectile.x - enemyShip.x;
+                        const dy = projectile.y - enemyShip.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        if (distance < projectile.width / 2 + enemyShip.width / 2) {
+                            enemyShip.health -= 10;
+                            projectiles.splice(index, 1);
+                            playExplosionSound();
+                            explosions.push({
+                                x: projectile.x,
+                                y: projectile.y,
+                                radius: 0,
+                                maxRadius: 30,
+                                duration: 0.5,
+                                time: 0
+                            });
+
+                            if (enemyShip.health <= 0) {
+                                playExplosionSound();
+                                enemyShip.isAlive = false;
+                                explosions.push({
+                                    x: enemyShip.x,
+                                    y: enemyShip.y,
+                                    radius: 0,
+                                    maxRadius: 100,
+                                    duration: 1,
+                                    time: 0
+                                });
+                            }
+                        }
+                    }
+                });
+
+                meteors.forEach((meteor, meteorIndex) => {
+                    const dx = projectile.x - meteor.x;
+                    const dy = projectile.y - meteor.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < meteor.size / 2 + projectile.width / 2) {
+                        playExplosionSound();
+                        explosions.push({
+                            x: meteor.x,
+                            y: meteor.y,
+                            radius: 0,
+                            maxRadius: meteor.size,
+                            duration: 0.5,
+                            time: 0
+                        });
+
+                        meteors.splice(meteorIndex, 1);
+                        projectiles.splice(index, 1);
+                    }
+                });
+
+                enemyProjectiles.forEach((enemyProjectile, enemyIndex) => {
+                    const dx = projectile.x - enemyProjectile.x;
+                    const dy = projectile.y - enemyProjectile.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < projectile.width / 2 + enemyProjectile.width / 2) {
+                        playExplosionSound();
+                        explosions.push({
+                            x: projectile.x,
+                            y: projectile.y,
+                            radius: 0,
+                            maxRadius: 20,
+                            duration: 0.3,
+                            time: 0
+                        });
+
+                        projectiles.splice(index, 1);
+                        enemyProjectiles.splice(enemyIndex, 1);
+                    }
+                });
+
+                if (projectile.distance > projectileMaxDistance) {
+                    projectiles.splice(index, 1);
+                }
+            });
+
+            enemyProjectiles.forEach((projectile, index) => {
+                projectile.x += Math.cos(projectile.rotation) * projectile.speed * deltaTime;
+                projectile.y += Math.sin(projectile.rotation) * projectile.speed * deltaTime;
+                projectile.distance += projectile.speed * deltaTime;
+
+                const dx = projectile.x - ship.x;
+                const dy = projectile.y - ship.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < projectile.width / 2 + ship.width / 2) {
+                    if (ship.shields > 0) {
+                        ship.shields -= 10;
+                    } else {
+                        ship.health -= 10;
+                    }
+
+                    enemyProjectiles.splice(index, 1);
+
+                    explosions.push({
+                        x: projectile.x,
+                        y: projectile.y,
+                        radius: 0,
+                        maxRadius: 30,
+                        duration: 0.5,
+                        time: 0
+                    });
+
+                    if (ship.health <= 0) {
+                        ship.isAlive = false;
+                        for (let i = 0; i < 10; i++) {
+                            playExplosionSound();
+                            explosions.push({
+                                x: ship.x + (Math.random() - 0.5) * 50,
+                                y: ship.y + (Math.random() - 0.5) * 50,
+                                radius: 0,
+                                maxRadius: 30 + Math.random() * 20,
+                                duration: 1,
+                                time: 0
+                            });
+                        }
+                    }
+                }
+
+                if (projectile.distance > projectileMaxDistance) {
+                    enemyProjectiles.splice(index, 1);
+                }
+            });
+
+            if (currentTime - lastMeteorSpawnTime > meteorSpawnRate) {
+                spawnMeteor(currentTime);
+                lastMeteorSpawnTime = currentTime;
+            }
+
+            meteors.forEach((meteor, index) => {
+                meteor.x += Math.cos(meteor.angle) * meteor.speed * deltaTime;
+                meteor.y += Math.sin(meteor.angle) * meteor.speed * deltaTime;
+
+                const dx = meteor.x - ship.x;
+                const dy = meteor.y - ship.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < meteor.size / 2 + ship.width / 2) {
+                    if (ship.shields > 0) {
+                        ship.shields -= 20;
+                    } else {
+                        ship.health -= 20;
+                    }
+
+                    meteors.splice(index, 1);
+
+                    if (ship.health <= 0) {
+                        ship.isAlive = false;
+                        for (let i = 0; i < 10; i++) {
+                            explosions.push({
+                                x: ship.x + (Math.random() - 0.5) * 50,
+                                y: ship.y + (Math.random() - 0.5) * 50,
+                                radius: 0,
+                                maxRadius: 30 + Math.random() * 20,
+                                duration: 1,
+                                time: 0
+                            });
+                        }
+                    }
+                }
+
+                enemyShips.forEach(enemyShip => {
+                    if (enemyShip.isAlive) {
+                        const dx = meteor.x - enemyShip.x;
+                        const dy = meteor.y - enemyShip.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        if (distance < meteor.size / 2 + enemyShip.width / 2) {
+                            enemyShip.health -= 20;
+                            meteors.splice(index, 1);
+
+                            if (enemyShip.health <= 0) {
+                                enemyShip.isAlive = false;
+                                explosions.push({
+                                    x: enemyShip.x,
+                                    y: enemyShip.y,
+                                    radius: 0,
+                                    maxRadius: 100,
+                                    duration: 1,
+                                    time: 0
+                                });
+                            }
+                        }
+                    }
+                });
+
+                if (currentTime - meteor.spawnTime > meteor.lifetime) {
+                    meteors.splice(index, 1);
+                }
+            });
+
+            explosions.forEach((explosion, index) => {
+                explosion.time += deltaTime;
+                explosion.radius = (explosion.time / explosion.duration) * explosion.maxRadius;
+
+                if (explosion.time > explosion.duration) {
+                    explosions.splice(index, 1);
+                }
+            });
+
+            enemyShips.forEach(enemyShip => {
+                updateEnemyShip(enemyShip, deltaTime, currentTime);
+            });
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(canvas.width - 120, 10, 100, 20);
+            ctx.fillStyle = 'lime';
+            ctx.fillRect(canvas.width - 120, 10, energy, 20);
+            ctx.strokeStyle = 'white';
+            ctx.strokeRect(canvas.width - 120, 10, 100, 20);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(canvas.width - 120, 40, 100, 20);
+            ctx.fillStyle = 'cyan';
+            ctx.fillRect(canvas.width - 120, 40, ship.shields, 20);
+            ctx.strokeStyle = 'white';
+            ctx.strokeRect(canvas.width - 120, 40, 100, 20);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(canvas.width - 120, 70, 100, 20);
+            ctx.fillStyle = 'red';
+            ctx.fillRect(canvas.width - 120, 70, ship.health, 20);
+            ctx.strokeStyle = 'white';
+            ctx.strokeRect(canvas.width - 120, 70, 100, 20);
+
+            if (ship.isAlive) {
+                ctx.save();
+                ctx.translate(ship.x, ship.y);
+                ctx.rotate(ship.rotation);
+
+                ctx.fillStyle = 'gray';
+                ctx.fillRect(-ship.width / 2, -ship.height / 2, ship.width, ship.height);
+
+                const flameIntensity = Math.abs(ship.speed / ship.maxSpeed);
+                if (flameIntensity > 0) {
+                    const flameHeight = 10 + 10 * flameIntensity;
+                    ctx.fillStyle = `rgba(0, 128, 255, ${0.5 + 0.5 * flameIntensity})`;
+
+                    ctx.save();
+                    ctx.translate(-ship.width / 2 - 10, -15);
+                    ctx.rotate(Math.PI / 2);
+                    ctx.fillRect(-5, -flameHeight / 2, 10, flameHeight);
+                    ctx.restore();
+
+                    ctx.save();
+                    ctx.translate(-ship.width / 2 - 10, 15);
+                    ctx.rotate(Math.PI / 2);
+                    ctx.fillRect(-5, -flameHeight / 2, 10, flameHeight);
+                    ctx.restore();
+                }
+
+                turrets.forEach(turret => {
+                    ctx.save();
+                    ctx.translate(turret.x, turret.y);
+                    ctx.rotate(turret.rotation);
+
+                    ctx.fillStyle = 'darkgray';
+                    ctx.fillRect(-10, -10, 20, 20);
+
+                    const recoilOffset = turret.recoil * 10;
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(0, -5, 25 - recoilOffset, 5);
+                    ctx.fillRect(0, 0, 25 - recoilOffset, 5);
+
+                    ctx.restore();
+                });
+
+                ctx.restore();
+            }
+
+            enemyShips.forEach(enemyShip => {
+                if (enemyShip.isAlive) {
+                    ctx.save();
+                    ctx.translate(enemyShip.x, enemyShip.y);
+                    ctx.rotate(enemyShip.rotation);
+
+                    ctx.fillStyle = 'darkred';
+                    ctx.fillRect(-enemyShip.width / 2, -enemyShip.height / 2, enemyShip.width, enemyShip.height);
+
+                    enemyTurrets.forEach(turret => {
+                        ctx.save();
+                        ctx.translate(turret.x, turret.y);
+                        ctx.rotate(turret.rotation);
+
+                        ctx.fillStyle = 'darkgray';
+                        ctx.fillRect(-10, -10, 20, 20);
+
+                        const recoilOffset = turret.recoil * 10;
+                        ctx.fillStyle = 'black';
+                        ctx.fillRect(0, -5, 25 - recoilOffset, 5);
+                        ctx.fillRect(0, 0, 25 - recoilOffset, 5);
+
+                        ctx.restore();
+                    });
+
+                    ctx.restore();
+
+                    const healthBarWidth = 60;
+                    const healthBarHeight = 5;
+                    const healthBarX = enemyShip.x - healthBarWidth / 2;
+                    const healthBarY = enemyShip.y - enemyShip.height / 2 - 10;
+
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                    ctx.fillRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+                    ctx.fillStyle = 'red';
+                    ctx.fillRect(healthBarX, healthBarY, (enemyShip.health / enemyShip.maxHealth) * healthBarWidth, healthBarHeight);
+                    ctx.strokeStyle = 'white';
+                    ctx.strokeRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+
+                    const energyBarWidth = 60;
+                    const energyBarHeight = 5;
+                    const energyBarX = enemyShip.x - energyBarWidth / 2;
+                    const energyBarY = enemyShip.y - enemyShip.height / 2 - 20;
+
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                    ctx.fillRect(energyBarX, energyBarY, energyBarWidth, energyBarHeight);
+                    ctx.fillStyle = 'yellow';
+                    ctx.fillRect(energyBarX, energyBarY, (enemyShip.energy / enemyShip.maxEnergy) * energyBarWidth, energyBarHeight);
+                    ctx.strokeStyle = 'white';
+                    ctx.strokeRect(energyBarX, energyBarY, energyBarWidth, energyBarHeight);
+                }
+            });
+
+            projectiles.forEach(projectile => {
+                ctx.save();
+                ctx.translate(projectile.x, projectile.y);
+                ctx.rotate(projectile.rotation);
+
+                ctx.fillStyle = projectile.color;
+                ctx.fillRect(-projectile.width / 2, -projectile.height / 2, projectile.width, projectile.height);
+
+                ctx.restore();
+            });
+
+            enemyProjectiles.forEach(projectile => {
+                ctx.save();
+                ctx.translate(projectile.x, projectile.y);
+                ctx.rotate(projectile.rotation);
+
+                ctx.fillStyle = projectile.color;
+                ctx.fillRect(-projectile.width / 2, -projectile.height / 2, projectile.width, projectile.height);
+
+                ctx.restore();
+            });
+
+            meteors.forEach(meteor => {
+                ctx.beginPath();
+                ctx.arc(meteor.x, meteor.y, meteor.size / 2, 0, Math.PI * 2);
+                ctx.fillStyle = '#808080';
+                ctx.fill();
+            });
+
+            explosions.forEach(explosion => {
+                ctx.beginPath();
+                ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 165, 0, ${1 - explosion.time / explosion.duration})`;
+                ctx.fill();
+            });
+
+            if (laserActive) {
+                const laserAngle = Math.atan2(mouse.y - ship.y, mouse.x - ship.x);
+                const laserEndX = ship.x + Math.cos(laserAngle) * 10000;
+                const laserEndY = ship.y + Math.sin(laserAngle) * 10000;
+
+                ctx.strokeStyle = 'red';
+                ctx.lineWidth = 5;
+                ctx.beginPath();
+                ctx.moveTo(ship.x, ship.y);
+                ctx.lineTo(laserEndX, laserEndY);
+                ctx.stroke();
+            }
+
+            if (wave) {
+                ctx.beginPath();
+                ctx.arc(wave.x, wave.y, wave.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.5)';
+                ctx.fill();
+            }
+
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(mouse.x - 10, mouse.y);
+            ctx.lineTo(mouse.x + 10, mouse.y);
+            ctx.moveTo(mouse.x, mouse.y - 10);
+            ctx.lineTo(mouse.x, mouse.y + 10);
+            ctx.stroke();
+        }
+
+        function resetGame() {
+            ship.x = canvas.width / 2;
+            ship.y = canvas.height / 2;
+            ship.health = 100;
+            ship.shields = 100;
+            ship.isAlive = true;
+            enemyShips.forEach(enemyShip => spawnEnemyShip(enemyShip));
+            projectiles = [];
+            enemyProjectiles = [];
+            explosions = [];
+            meteors = [];
+            energy = 100;
+            gameOverTime = 0;
+            wave = null;
+        }
+
+        enemyShips.forEach(enemyShip => spawnEnemyShip(enemyShip));
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
